@@ -1,0 +1,255 @@
+insert overwrite table intg.intg_trans_event partition(p_day = "yesterday")
+  select
+    t1.id as trans_event_id, -- 运力id
+    t1.trans_task_id, -- 线路任务ID
+    t1.customer_id, -- 客户ID
+    t1.customer_price, -- 客户价格，单位：分
+    t1.warehouse_id, -- 仓库ID
+    t1.driver_id, -- 司机ID
+    t1.driver_price, -- 司机价格，单位:分
+    t1.sales_id, -- 客服经理ID
+    t1.sop_mgr_id, -- 现控经理id
+    t1.bid_mgr_id, -- 岗位管理经理ID
+    t1.dd_id, -- 拓展经理ID
+    t1.car_id as car_type_id, -- 司机的车型ID
+    t1.car_num, -- 司机的车牌号码
+    t1.car_team_id, -- 司机所属车队id
+    t1.status, -- 状态
+    t1.type, -- 运力类型，默认为普通运力
+    t1.inspect_status, -- 检察状态
+    t1.inspect_at, -- 检察状态最后更新时间
+    t1.comment, -- 状态变化的描述：例如旷工原因、请假原因
+    t1.work_time, -- 出车日期 到仓时间
+    from_unixtime(cast(t1.work_begin_time/1000 as bigint) , "HH:mm:ss") as work_begin_time, -- 到仓时间
+    t1.time_cost, -- 预计花费时间 单位：秒
+    t1.created_at, -- 任务创建时间
+    t1.updated_at, -- 最后更新时间
+    t1.is_del, -- 出车计划是否被删除
+    t1.fcc_id, -- 现控员ID
+    t1.invoice_contents, -- 存储当时需开发票的内容
+    t1.task_type, -- 线路任务类型
+    t1.task_line_name, -- 任务线路名称
+    t1.task_is_back, -- 是否返仓 0不要求；1要求
+    t1.is_addition, -- 该出车记录是否是加跑
+    t1.addition_count, -- 加跑次数，表示该出车记录被加跑了几次
+    t1.addition_comment, -- 加跑说明，该出车记录被设置加跑的时候的说明文字
+    t1.addition_seq, -- 当该出车记录为加跑记录的时候，表示该加跑是第几次加跑，序号
+    t1.source_event_id, -- 当该出车记录为加跑记录的时候，记录其父项出车计划ID 即是对那一条出车计划进行加跑
+    t1.first_pay_money, -- 是否首次签到，用来做首日打款用的，一个司机只能有一个
+    t1.first_check_in, -- 是否首次签到，用来做产生待评价用的，一个司机在一个客户的一个仓库下只能有一个
+    t1.is_supplement, -- 是否为补签到
+    t1.is_late, -- 是否迟到
+    t1.is_wrong_location, -- 是否签到位置与仓位置偏差大于1.5公里
+    t1.adc_id as customer_adc_id, -- 客户所属管理区ID
+    t1.complete_time, -- 运力完成时间
+    t1.project_type, -- 客户项目类型
+    t1.bu_leader_id, -- 客户所属bu leader的id
+    t1.new_trade_level_one, -- 客户新行业一级分类id
+    t1.new_trade_level_two, -- 客户新行业二级分类id
+    -- 状态更改的情况 BEGIN
+    t2.longitude as check_in_longitude, -- 签到时经度
+    t2.latitude as check_in_latitude, -- 签到时纬度
+    t2.client_ip as check_in_ip, -- 签到时ip
+    t2.created_at as check_in_time, -- 签到时时间
+    t3.longitude as departure_longitude, -- 离仓时经度
+    t3.latitude as departure_latitude, -- 离仓时纬度
+    t3.client_ip as departure_ip, -- 离仓时ip
+    t3.created_at as departure_time, -- 离仓时时间
+    t4.longitude as complete_event_longitude, -- 完成时经度
+    t4.latitude as complete_event_latitude, -- 完成时纬度
+    t4.client_ip as complete_event_ip, -- 完成时ip地址
+    t4.created_at as complete_event_time, -- 完成时时间
+    if(t3.created_at is null, 0, 1) as is_departure, -- 是否离开仓库
+    -- 状态更改的情况 END
+
+    -- 增值服务开启情况 BEGIN
+    if(t5.trans_event_id is null, 0, 1) as have_sop, -- 是否购买sop
+    if(t6.trans_event_id is null, 0, 1) as have_customer_insurance, -- 是否购买客户保险
+    if(t7.trans_event_id is null, 0, 1) as have_temp_ctrl, -- 是否购买温控服务
+    if(t8.trans_event_id is null, 0, 1) as have_driver_insurance, -- 是否购买司机保险
+    t5.service_config as service_config_sop,
+    t6.service_config as service_config_customer_insurance,
+    t7.service_config as service_config_temp_ctrl,
+    t8.service_config as service_config_driver_insurance,
+
+    ---- sop相关
+    t5.sop_rate,
+
+    ---- customer_insurance相关
+    t6.customer_insurance_type,
+    t6.customer_insurance_charge_type,
+    t6.customer_insurance_insure_way,
+    t6.customer_insurance_sum_insured,
+    t6.customer_insurance_price_mode,
+    t6.customer_insurance_mode_number,
+    t6.customer_insurance_min_price,
+
+    ---- temp_ctrl相关
+    t7.temp_ctrl_price_mode,
+    t7.temp_ctrl_price_rate,
+
+    ---- driver_insurance相关
+    t8.driver_insurance_type,
+    t8.driver_insurance_price_mode_value,
+    t8.driver_insurance_price_mode,
+
+    -- 增值服务开启情况 END
+
+    t9.invoice_tax_rate,
+    t9.customer_tcsp,
+    t9.finance_pay_type,
+    t9.first_onboard_rate,
+    t9.sop_royalty_rate,
+    t9.subsidy_content,
+
+    -- 配送点相关
+    t10.bonus_status,
+    t10.final_distribution_point_count,
+    t10.distribution_point_startup_count,
+    t10.bonus_money,
+    t10.confirm_type,
+    t10.confirmed_at
+
+  from ods_mysql.ods_beeper_trans_event__yn_trans_event t1
+  left join
+  (
+    select
+      trans_event_id, -- 运力ID
+      -- type, -- 与运力表中status取值一致(400:签到 800:离仓 900:配送完成)
+      longitude, -- 经度
+      latitude, -- 纬度
+      client_ip, -- ip
+      created_at -- 创建时间
+    from ods_mysql.ods_beeper_trans_event__yn_trans_event_coordinate
+    where p_day="yesterday" and type = 400
+  ) t2
+  on t1.id = t2.trans_event_id
+  left join
+  (
+    select
+      trans_event_id, -- 运力ID
+      -- type, -- 与运力表中status取值一致(400:签到 800:离仓 900:配送完成)
+      longitude, -- 经度
+      latitude, -- 纬度
+      client_ip, -- ip
+      created_at -- 创建时间
+    from ods_mysql.ods_beeper_trans_event__yn_trans_event_coordinate
+    where p_day="yesterday" and type = 800
+  ) t3
+  on t1.id = t3.trans_event_id
+  left join
+  (
+    select
+      trans_event_id, -- 运力ID
+      -- type, -- 与运力表中status取值一致(400:签到 800:离仓 900:配送完成)
+      longitude, -- 经度
+      latitude, -- 纬度
+      client_ip, -- ip
+      created_at -- 创建时间
+    from ods_mysql.ods_beeper_trans_event__yn_trans_event_coordinate
+    where p_day="yesterday" and type = 900
+  ) t4
+  on t1.id = t4.trans_event_id
+  left join
+  (
+    select C1.trans_event_id, C1.service_config, D1.*
+    from ods_mysql.ods_beeper_trans_event__yn_trans_event_vas as C1
+    -- lateral view json_tuple(C1.service_config, 'sop_rate') D1 as sop_rate
+    where C1.p_day="yesterday" and C1.is_del = 0 and C1.service_type = "sop"
+  ) t5
+  on t1.id = t5.trans_event_id
+  left join
+  (
+    select C1.trans_event_id, C1.service_config, D1.*
+    from ods_mysql.ods_beeper_trans_event__yn_trans_event_vas C1
+    -- lateral view json_tuple(C1.service_config,
+    'insurance_type', 'charge_type', 'insure_way', 'sum_insured', 'customer_price_mode', 'customer_mode_number', 'min_customer_price') D1 as
+    customer_insurance_type, customer_insurance_charge_type, customer_insurance_insure_way, customer_insurance_sum_insured, customer_insurance_price_mode, customer_insurance_mode_number, customer_insurance_min_price
+    where C1.p_day="yesterday" and C1.is_del = 0 and C1.service_type = "customer_insurance"
+  ) t6
+  on t1.id = t6.trans_event_id
+  left join
+  (
+    select C1.trans_event_id, C1.service_config, D1.*
+    from ods_mysql.ods_beeper_trans_event__yn_trans_event_vas C1
+    -- lateral view json_tuple(C1.service_config, 'price_mode', 'price_rate') D1 as temp_ctrl_price_mode, temp_ctrl_price_rate
+    where C1.p_day="yesterday" and C1.is_del = 0 and C1.service_type = "temp_ctrl"
+  ) t7
+  on t1.id = t7.trans_event_id
+  left join
+  (
+    select C1.trans_event_id, C1.service_config, D1.*
+    from ods_mysql.ods_beeper_trans_event__yn_trans_event_vas C1
+    -- lateral view json_tuple(C1.service_config,
+    'insurance_type', 'price_mode_value', 'price_mode') D1 as
+    driver_insurance_type, driver_insurance_price_mode_value, driver_insurance_price_mode
+    where C1.p_day="yesterday" and C1.is_del = 0 and C1.service_type = "driver_insurance"
+  ) t8
+  on t1.id = t8.trans_event_id
+  left join ods_mysql.ods_beeper_trans_event__yn_trans_event_price_snapshot t9
+  on t9.p_day="yesterday" and t1.id = t9.trans_event_id
+  left join ods_mysql.ods_beeper_trans_event__yn_trans_event_bonus t10
+  on t10.p_day="yesterday" and t1.id = t10.trans_event_id
+  where t1.p_day="yesterday";
+
+insert overwrite table dwa.dwa_admin_user_sales_all_p_day partition(p_day="yesterday")
+select admin_id,admin_nick,admin_name,admin_roles,t3.buid,bu_name,bu_lead,t6.id,bu_parent_id,t5.name,bu_type,t3.adcid,t4.name,t3.st,t3.del
+from
+(select
+    t1.id as admin_id,
+    t1.nick as admin_nick,
+    t1.name as admin_name,
+    t1.roles as admin_roles,
+    t2.buid as buid,
+    t2.name as bu_name,
+    t2.`lead` as bu_lead,
+    t2.type as bu_type,
+    t2.parent_id as bu_parent_id,
+    t2.adcid as adcid,
+    t1.st as st, -- ADMIN_USER_STATUS 100:待审核,200:上岗,300:删除
+    t1.del as del --是否删除
+from ods.ods_admin_user t1
+left join
+(select buid,name,parent_id,adcid,member,lead,type
+  from ods.ods_business_unit
+      -- lateral view explode(split(members,",")) memebers_split as member where type = 200) t2
+on t1.nick = t2.member where array_contains(split(t1.roles,","),"sales") ) t3
+left join ods.ods_administrative_city t4
+on t3.adcid = t4.adcid
+left join ods.ods_business_unit t5
+on t3.bu_parent_id = t5.buid
+left join ods.ods_admin_user t6
+on t3.bu_lead = t6.nick
+;
+
+insert overwrite table dwa.dwa_admin_user_sales_p_day partition(p_day="yesterday")
+select admin_id,admin_nick,admin_roles,admin_st,t3.buid,bu_name,bu_lead,t6.id,bu_parent_id,t5.name,bu_type,t3.adcid,t4.name,t3.st,t3.del
+from
+(select
+    t1.id as admin_id,
+    t1.nick as admin_nick,
+    t1.roles as admin_roles,
+    t1.st as admin_st,
+    t2.buid as buid,
+    t2.name as bu_name,
+    t2.`lead` as bu_lead,
+    t2.type as bu_type,
+    t2.parent_id as bu_parent_id,
+    t2.adcid as adcid,
+    t1.st as st, -- ADMIN_USER_STATUS 100:待审核,200:上岗,300:删除
+    t1.del as del --是否删除
+from ods.ods_admin_user t1
+left join
+(select buid,name,parent_id,adcid,member,lead,type
+  from ods.ods_business_unit
+      -- lateral view explode(split(members,",")) memebers_split as member where type = 200) t2
+on t1.nick = t2.member where array_contains(split(t1.roles,","),"sales") and t1.st in (100,200)) t3
+left join ods.ods_administrative_city t4
+on t3.adcid = t4.adcid
+left join ods.ods_business_unit t5
+on t3.bu_parent_id = t5.buid
+left join ods.ods_admin_user t6
+on t3.bu_lead = t6.nick
+;
+
+

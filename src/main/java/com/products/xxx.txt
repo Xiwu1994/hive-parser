@@ -1,0 +1,366 @@
+insert overwrite table app.app_base_customer_info
+      select
+            t1.customer_id,
+            t1.name as customer_name,
+            t2.sales_id,
+            t3.admin_nick as sales_name,
+            t3.adc_id,
+            t3.adc_name,
+            t2.city_id,
+            t4.city_name,
+            t3.bu_id,
+            t3.bu_name,
+            t3.bu_lead_id,
+            t3.bu_lead,
+            t2.main_bid_mgr_id,
+            t5.nick as main_bid_mgr_name,
+            t2.quality_mgr_id as sop_mgr_id,
+            t6.nick as sop_mgr_name,
+            t1.crm_id,
+            t1.service_start,
+            t1.latest_trans_event_complete_date,
+            t1.create_time,
+            t1.login_name,
+            t1.creater,
+            t1.contact,
+            t1.com_name,
+            t2.is_frozen,
+            t2.is_individual,
+            t2.is_self_register,
+            t2.temp_ctrl_enabled,
+            t2.pt,
+            t2.pt_checked,
+            t2.ps,
+            t2.is_lanshou_order,
+            t2.is_sign_photo,
+            t2.is_show_distribution,
+            t2.st,
+            t2.finance_pay_type,
+            t2.customer_source,
+            t2.new_tclo,
+            if(t2.new_tclt is null or t2.new_tclt = '', null, split_int(t2.new_tclt,',')[0]) as new_tclt,
+            t2.tcsp,
+            t2.running_task_count,
+            t2.trade_tag_other_desc,
+            t7.trade_tags,
+            from_unixtime(unix_timestamp()) as created_at,
+            from_unixtime(unix_timestamp()) as updated_at
+      from fact.fact_customer t1
+      left join dim.dim_customer_p_day t2 on t2.p_day = ${yesterday} and t1.customer_id = t2.customer_id
+      left join dwa_beeper.dwa_beeper_admin_user_sales_all_p_day t3 on t3.p_day = ${yesterday} and t3.admin_id = t2.sales_id
+      left join dim_beeper.dim_beeper_base_city t4 on t2.city_id = t4.city_id and t4.p_day=${yesterday}
+      left join dim_beeper.dim_beeper_admin_user t5 on t5.user_id = t2.main_bid_mgr_id and t5.p_day=${yesterday}
+      left join dim_beeper.dim_beeper_admin_user t6 on t6.user_id = t2.quality_mgr_id and t6.p_day=${yesterday}
+      left join (
+            select
+                  customer_id,
+                  concat_ws(',', collect_set(cn_name)) as trade_tags
+            from dwa.dwa_customer_trade_tags
+            group by customer_id) t7 on t1.customer_id = t7.customer_id
+      where t2.adc_id <> 5;
+
+
+insert overwrite table tmp.tmp_bi_sop_statistics_by_customer_101
+    select
+        to_date(complete_time) as p_day,
+        customer_id as customer_id,
+        count(*) as trans_event_complete_cnt,
+        nvl(sum(cprice_per_day), 0) + nvl(sum(driver_bonus_money), 0) as cprice_per_day_sum,
+        nvl(sum(sop_price), 0) + nvl(sum(bonus_sop_charge), 0) as sop_price_sum
+    from dwa_beeper.dwa_beeper_trans_event
+    where to_date(complete_time) >= '2017-08-01' and to_date(complete_time) >= ${intervalday} and to_date(complete_time) <= ${yesterday} and status = 900 and is_del = 0
+          and have_sop = 1 and customer_adc_id <> 5
+    group by to_date(complete_time), customer_id;
+
+
+insert overwrite table tmp.tmp_bi_sop_statistics_by_customer_102
+      select
+          paid_date as p_day,
+          customer_id,
+          nvl(sum(sop_royalty_price), 0) + nvl(sum(sop_royalty_for_bonus), 0) as sop_royalty_price_sum
+      from fact_beeper.fact_beeper_fcc_salary_records
+      where status = 1 and paid_date >= '2017-08-01' and paid_date >= ${intervalday} and paid_date <= ${yesterday}
+      group by paid_date, customer_id;
+
+insert overwrite table tmp.tmp_bi_sop_statistics_by_customer_1
+    select
+        T0.p_day,
+        T0.customer_id,
+        T1.trans_event_complete_cnt,
+        T1.cprice_per_day_sum,
+        T1.sop_price_sum,
+
+        T2.sop_royalty_price_sum
+    from (
+        select
+            distinct p_day,
+            customer_id
+        from (
+            select
+                p_day,
+                customer_id
+            from tmp.tmp_bi_sop_statistics_by_customer_101
+            union all
+            select
+                p_day,
+                customer_id
+            from tmp.tmp_bi_sop_statistics_by_customer_102
+        ) S0
+    ) T0
+    left join tmp.tmp_bi_sop_statistics_by_customer_101 T1 on T1.p_day = T0.p_day and T1.customer_id = T0.customer_id
+    left join tmp.tmp_bi_sop_statistics_by_customer_102 T2 on T2.p_day = T0.p_day and T2.customer_id = T0.customer_id;
+
+
+
+insert overwrite table tmp.tmp_bi_sop_statistics_by_customer_2
+    select
+        T0.p_day,
+        T0.customer_id,
+        1 as project_type,
+        nvl(T0.sop_price_sum, 0),
+        nvl(T0.income_total_fengzhuang, 0),
+        nvl(T1.sop_royalty_price_sum, 0)
+    from (
+        select
+            to_date(S0.report_date) as p_day,
+            S0.customer_id,
+            sum(income_business_total/(1+customer_tax_rate)) as income_total_fengzhuang,
+            sum(S1.amount) as sop_price_sum
+        from fact_beeper.fact_beeper_pack_report S0
+        left join fact_beeper.fact_beeper_pack_report_business_cost S1 on S1.cost_type = 700 and S1.report_id = S0.pack_report_id
+        left join dim.dim_customer_p_day S2 on S2.p_day = to_date(S0.report_date) and S2.customer_id = S0.customer_id
+        where to_date(S0.report_date) >= '2017-08-01' and to_date(S0.report_date) >= ${intervalday} and to_date(S0.report_date) <= ${yesterday} and S0.status = 200 -- 已提交
+              and get_json_object(S2.vass, '$.type') = 300  -- 挂p状态
+        group by to_date(S0.report_date), S0.customer_id
+    ) T0
+    left join (
+      select
+          pay_date as p_day,
+          customer_id,
+          sum(fcc_commission_amount) as sop_royalty_price_sum
+      from fact_beeper.fact_beeper_fcc_commission_log
+      where pay_date >= '2017-08-01' and pay_date >= ${intervalday} and pay_date <= ${yesterday}
+      group by pay_date, customer_id
+    ) T1 on T1.p_day = T0.p_day and T1.customer_id = T0.customer_id;
+
+
+insert overwrite table tmp.tmp_bi_sop_statistics_by_customer_3
+    select
+        T0.`date` as p_day,
+        T0.ci_customer_id as customer_id,
+        sum(T0.salary_base_daily) as salary_base_sum
+    from fact_beeper.fact_beeper_fcc_clock_in_records T0
+    where T0.`date` >= '2017-08-01' and T0.`date` >= ${intervalday} and T0.`date` <= ${yesterday} and T0.ci_status = 2 and T0.status = 2
+    group by T0.`date`, T0.ci_customer_id;
+
+-- 合并覆盖写入
+
+insert overwrite table app_beeper.app_beeper_bi_sop_statistics_by_customer partition(p_day)
+    select
+        X0.customer_id,
+        X1.name as customer_name,
+        X2.sales_id,
+        X3.admin_nick as sales_name,
+        X3.bu_lead_id as bu_leader_id,
+        X3.bu_lead as bu_leader_name,
+        X2.quality_mgr_id as sop_mgr_id,
+        X4.nick as sop_mgr_name,
+        X0.project_type,
+        case X0.project_type when 1 then '封装' when 2 then '自助' else '' end as project_type_display,
+        if(X5.type=300, X5.begin_time, null) as sop_start_date,
+        if(X5.type=300 and X5.begin_time is not null, datediff(X0.p_day, X5.begin_time), 0) as sop_do_days,
+        if(X5.type=300, X5.spp, null) as sop_spp,
+        X2.adc_id,
+        X6.adc_name,
+        X2.city_id,
+        X9.city_name,
+        X0.trans_event_complete_cnt,
+        X0.cprice_per_day_sum,
+        X0.sop_price_sum,
+        X7.gmv,
+        X0.income_total_fengzhuang,
+        X0.salary_base_sum,
+        X0.sop_royalty_price_sum,
+        nvl(X0.salary_base_sum, 0) + nvl(X0.sop_royalty_price_sum, 0) as salary_total,
+        nvl(X0.sop_price_sum, 0) - nvl(X0.salary_base_sum, 0) - nvl(X0.sop_royalty_price_sum, 0) as sop_gross_profit,
+        if(X0.sop_price_sum > 0, (nvl(X0.sop_price_sum, 0) - nvl(X0.salary_base_sum, 0) - nvl(X0.sop_royalty_price_sum, 0))/X0.sop_price_sum, 0) as sop_gross_profit_rate,
+        X8.adc_cprice_sum,
+        if(X7.gmv > 0, X0.sop_price_sum/X7.gmv, 0) as sop_price_percent,
+        X7.gmv as sop_price_percent_denominator,
+        if(X0.trans_event_complete_cnt > 0, 0, 1) as no_trans_event,
+        current_timestamp as created_at,
+        current_timestamp as updated_at,
+        X0.p_day
+    from (
+        select
+            T0.p_day,
+            T0.customer_id,
+            T4.pt as project_type,
+            T1.trans_event_complete_cnt,
+            T1.cprice_per_day_sum,
+            case T4.pt when 1 then T2.sop_price_sum when 2 then T1.sop_price_sum else 0 end as sop_price_sum,
+            T2.income_total_fengzhuang,
+            T3.salary_base_sum,
+            case T4.pt when 1 then T2.sop_royalty_price_sum when 2 then T1.sop_royalty_price_sum else 0 end as sop_royalty_price_sum
+        from (
+            select
+                distinct p_day,
+                customer_id
+            from (
+                select
+                    p_day,
+                    customer_id
+                from tmp.tmp_bi_sop_statistics_by_customer_1
+                union all
+                select
+                    p_day,
+                    customer_id
+                from tmp.tmp_bi_sop_statistics_by_customer_2
+                union all
+                select
+                    p_day,
+                    customer_id
+                from tmp.tmp_bi_sop_statistics_by_customer_3
+            ) S0
+        ) T0
+        left join tmp.tmp_bi_sop_statistics_by_customer_1 T1 on T0.p_day = T1.p_day and T0.customer_id = T1.customer_id
+        left join tmp.tmp_bi_sop_statistics_by_customer_2 T2 on T0.p_day = T2.p_day and T0.customer_id = T2.customer_id
+        left join tmp.tmp_bi_sop_statistics_by_customer_3 T3 on T0.p_day = T3.p_day and T0.customer_id = T3.customer_id
+        left join dim.dim_customer_p_day T4 on T4.p_day = T0.p_day and T0.customer_id = T4.customer_id
+    ) X0
+    left join fact.fact_customer X1 on X0.customer_id = X1.customer_id
+    left join dim.dim_customer_p_day X2 on X2.p_day = X0.p_day and X0.customer_id = X2.customer_id
+    left join dwa_beeper.dwa_beeper_admin_user_sales_all_p_day X3 on X3.p_day = X0.p_day and X2.sales_id = X3.admin_id
+    left join dim_beeper.dim_beeper_admin_user X4 on X4.user_id = X2.quality_mgr_id and x4.p_day = ${yesterday}
+    left join (
+        select
+            C1.customer_id,
+            get_json_object(C1.vass_json, '$.type') as type,
+            get_json_object(C1.vass_json, '$.spp') as spp,
+            from_unixtime(cast(get_json_object(C1.vass_json, '$.bts.date')/1000 as bigint)) as begin_time
+        from (
+            select
+                customer_id,
+                regexp_replace(vass, '\\$', '') vass_json
+            from dim.dim_customer_p_day
+            where p_day = ${yesterday} and vass is not null and vass <> ''
+        ) C1
+    ) X5 on X5.customer_id = X0.customer_id
+    left join dim_beeper.dim_beeper_adc X6 on X6.p_day = ${yesterday} and X6.adc_id = X2.adc_id
+    left join (
+        select
+            p_day,
+            customer_id,
+            sum(gmv) as gmv
+        from dwa_beeper.dwa_beeper_customer_summary_data_p_day
+        where p_day >= '2017-08-01' and p_day >= ${intervalday} and p_day <= ${yesterday}
+        group by p_day, customer_id
+    ) X7 on X7.p_day = X0.p_day and X7.customer_id = X0.customer_id
+    left join (
+        select
+            to_date(complete_time) as p_day,
+            customer_adc_id as adc_id,
+            nvl(sum(cprice_per_day), 0) + nvl(sum(driver_bonus_money), 0) as adc_cprice_sum
+        from dwa_beeper.dwa_beeper_trans_event
+        where to_date(complete_time) >= '2017-08-01' and to_date(complete_time) >= ${intervalday} and to_date(complete_time) <= ${yesterday} and status = 900 and is_del = 0 and customer_adc_id <> 5
+        group by to_date(complete_time), customer_adc_id
+    ) X8 on X8.p_day = X0.p_day and X8.adc_id = X2.adc_id
+    left join dim_beeper.dim_beeper_base_city X9 on X9.p_day = ${yesterday} and X9.city_id = X2.city_id;
+
+       insert overwrite table dim.dim_customer_p_day partition(p_day=${yesterday})
+                select
+                     T1.cuid,
+                     T1.is_frozen,
+                     T1.is_individual,
+                     T1.is_self_register,
+                     T1.temp_ctrl_enabled,
+                     T1.adcid,
+                     T1.pt,
+                     T1.pt_checked,
+                     T1.ps,
+                     T1.project_effect_date,
+                     T1.settlement_method,
+                     T1.settlement_start_date,
+                     T1.settlement_end_date,
+                     T1.committed_payment_days,
+                     T1.is_auto_receive_bill,
+                     T1.is_bonus_charged,
+                     T1.is_lanshou_order,
+                     T1.is_sign_photo,
+                     T1.is_show_distribution,
+                     T1.show_price_detail,
+                     T1.st,
+                     T1.finance_pay_type,
+                     T1.nick,
+                     T1.customer_source,
+                     T1.sales_id,
+                     T1.main_bid_mgr_id,
+                     T1.city_id,
+                     T1.tclo,
+                     T1.new_tclo,
+                     T1.new_tclt,
+                     T1.trade,
+                     T1.quality_mgr_id,
+                     T1.bid_mgr,
+                     T1.tcpp,
+                     T1.spp,
+                     T1.tcsp,
+                     T1.evc,
+                     T1.succeed_ratio,
+                     T1.fbc_month,
+                     T1.total_score,
+                     T1.evtags,
+                     T1.urc,
+                     T1.uec,
+                     T1.utdec,
+                     T1.utdec_first,
+                     T1.utdec_week,
+                     T1.uctc,
+                     T1.uttc,
+                     T1.ufc,
+                     T1.vas,
+                     T1.invoice_switch,
+                     T1.last_invoice_tax_rate,
+                     T1.last_invoice_contents,
+                     T1.invoice_tax_rate,
+                     T1.invoice_contents,
+                     T1.invoice_start_date,
+                     T1.is_need_invoice,
+                     T1.sop_pts,
+                     T1.sop_scope,
+                     T1.sop_level,
+                     T1.sop_is_normal,
+                     T1.sop_is_enforce,
+                     T1.hide_sop_price_for_customer,
+                     T1.self_control_sop,
+                     T1.calendar_type,
+                     T1.gmv_status,
+                     T1.tender_status,
+                     T1.enable_gmv,
+                     T1.is_have_cargo_insurance,
+                     T1.cargo_insurance_rate,
+                     T1.cargo_insurance_type,
+                     T1.middle_cargo_insurance_price_type,
+                     T1.addition_max_limit,
+                     T1.running_task_count,
+                     T1.rnca,
+                     T1.trade_tag_other_desc,
+                     T1.trade_tags,
+                     T1.vehicles_times,
+                     T1.vass,
+                     T1.company_id,
+                     T2.name as company_name,
+                     T2.group_id,
+                     T3.name as group_name,
+
+                     if(T1.is_agree_contract, 1, 0) as is_agree_contract,
+                     if(T1.is_first_contract, 1, 0) as is_first_contract,
+                     if(T1.read_novice_guide, 1, 0) as is_read_novice_guide,
+                     if(T1.is_sign_reason, 1, 0) as is_sign_reason,
+                     T1.cargo_type,
+                     T1.consignee_type,
+
+                     T1.project_operation_mgr_id
+                 from ods.ods_customer T1
+                 left join ods_mysql.ods_beeper_customer_api__customer_company T2 on T2.p_day = ${yesterday} and T1.company_id = T2.id
+                 left join ods_mysql.ods_beeper_customer_api__customer_group T3 on T3.p_day = ${yesterday} and T2.group_id = T3.id;
