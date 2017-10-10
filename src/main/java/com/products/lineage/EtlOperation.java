@@ -1,0 +1,188 @@
+package com.products.lineage;
+
+import com.products.bean.SQLResult;
+import com.products.parse.LineParser;
+import com.products.util.FileUtil;
+import com.products.util.PropertyFileUtil;
+import com.products.util.traverseFolder;
+import org.apache.commons.lang.StringUtils;
+import org.yaml.snakeyaml.Yaml;
+import java.io.FileInputStream;
+import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+
+public class EtlOperation {
+
+    private InsertNeo4jDB insertNeo4jDB = new InsertNeo4jDB() ;
+    private InsertMysqlDB insertMysqlDB = new InsertMysqlDB() ;
+    private boolean isInsertMySQL ;
+    private boolean isInsertNeo4j ;
+
+    private List<String> badSqls = new ArrayList<>() ;
+
+    public EtlOperation(){
+        Boolean insertMySQLFlag = Boolean.parseBoolean(PropertyFileUtil.getProperty("app.insert.mysql.flag")) ;
+        Boolean insertNeo4jFlag = Boolean.parseBoolean(PropertyFileUtil.getProperty("app.insert.neo4j.flag")) ;
+        this.isInsertMySQL = insertMySQLFlag ;
+        this.isInsertNeo4j = insertNeo4jFlag ;
+
+        Boolean cleanMySQLFlag = Boolean.parseBoolean(PropertyFileUtil.getProperty("app.clean.mysql.database")) ; // 清理mysql table
+        Boolean cleanNeo4jFlag = Boolean.parseBoolean(PropertyFileUtil.getProperty("app.clean.neo4j.database")) ; // 清理neo4j table
+        if(cleanMySQLFlag) {
+            insertMysqlDB.cleanDB() ;
+        }
+        if(cleanNeo4jFlag) {
+            insertNeo4jDB.cleanDB() ;
+        }
+    }
+
+    private void parseSql(String sql) throws Exception {
+        /*
+        * 解析sql + 入库(mysql OR neo4j)
+        * */
+        LineParser parser = new LineParser();
+        List<SQLResult> result = parser.parse(sql); // 解析SQL
+        if (this.isInsertNeo4j) {
+            for (SQLResult oneResult : result) {
+                insertNeo4jDB.insertDB(oneResult);
+            }
+        }
+        if (this.isInsertMySQL) {
+            for (SQLResult oneResult : result) {
+                insertMysqlDB.insertDB(oneResult);
+            }
+        }
+    }
+
+    public List<String> getSqlFromYaml(String filePath) throws Exception {
+        /*
+        * 获取yaml文件中的sql
+        * 注: 一个yaml文件可能多有个sql，所以返回List
+        * */
+        LinkedList sqlList = new LinkedList<String>();
+        if (filePath.contains("discard")) {
+            return sqlList;
+        }
+        Yaml yaml = new Yaml();
+        try {
+            Map res = yaml.loadAs(new FileInputStream(filePath), Map.class);
+            List<Map<String, Object>> steps = (List) (res.get("steps"));
+            for (Map<String, Object> step : steps) {
+                if (step.containsKey("type") && step.get("type").equals("hive")) {
+                    List<Map<String, Object>> sqls = (List<Map<String, Object>>) step.get("sqls");
+                    for (Map<String, Object> yaml_sql : sqls) {
+                        Map<String, Object> sqlMap = (Map<String, Object>) yaml_sql.get("sql");
+                        //String path = (String) (sqlMap.get("path"));
+                        String value = (String) (sqlMap.get("value"));
+                        sqlList.add(value);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("ERROR. yaml_file_path" + filePath);
+        }
+        return sqlList;
+    }
+
+    public void parseYamlFile(String filePath) throws Exception {
+        /*
+        * 解析某一个yaml文件中的 有写入操作的sql
+        * */
+        for (String value: getSqlFromYaml(filePath)) {
+            if(StringUtils.isNotEmpty(value)) {
+                if (value.contains("insert") || value.trim().replace("\n", " ").matches("create table.*as\\s.*")) {
+                    String sql = value.replace("${", "\"").replace("}", "\"").replace("lateral view", "-- lateral view").replace("LATERAL VIEW", "-- LATERAL VIEW");
+                    try {
+                        System.out.print("Begin: " + filePath + "\n");
+                        parseSql(sql);
+                        System.out.print("End:   " + filePath + "\n\n");
+                    } catch (Exception e) {
+                        badSqls.add(sql);
+                    }
+                }
+            }
+        }
+    }
+
+    public void parseScriptPath() throws Exception {
+        /*
+        * 解析script目录下yaml文件中 有写入操作的sql
+        * */
+        String beeperDataWarehouseScriptPath = PropertyFileUtil.getProperty("beeper_data_warehouse.script.path");
+        LinkedList filePathList = traverseFolder.traverseFolder(beeperDataWarehouseScriptPath);
+        for (Object filePath : filePathList) {
+            parseYamlFile(filePath.toString());
+        }
+    }
+
+    public void parseSqlFile(String filePath) throws Exception {
+        /*
+        * 解析某一个sql文件 有写入操作的sql
+        * */
+        String sqlList = FileUtil.read(filePath);
+        for (String sql : sqlList.split(";")) {
+            if (! filePath.contains("discard")) {
+                if (sql.contains("insert") || sql.trim().replace("\n", " ").matches("create table.*as\\s.*")) {
+                    sql = sql.replace("${", "\"").replace("}", "\"").replace("lateral view", "-- lateral view").replace("LATERAL VIEW", "-- LATERAL VIEW");
+                    try {
+                        System.out.print("Begin: " + filePath + "\n");
+                        parseSql(sql);
+                        System.out.print("End:   " + filePath + "\n\n");
+                    } catch(Exception e){
+                        badSqls.add(sql);
+                    }
+                }
+            }
+        }
+    }
+
+    public void parseSqlPath() throws Exception {
+        /*
+        * 解析sql目录下 有写入操作的sql
+        * */
+        String beeperDataWarehouseSqlPath = PropertyFileUtil.getProperty("beeper_data_warehouse.sql.path");
+        LinkedList filePathList = traverseFolder.traverseFolder(beeperDataWarehouseSqlPath);
+        for (Object filePath : filePathList) {
+            parseSqlFile(filePath.toString());
+        }
+    }
+
+    public void parse_beeper_data_warehouse_sql() throws Exception {
+        /*
+        * 处理仓库代码中有写入操作的sql
+        * */
+
+        parseSqlPath(); // 1.处理sql目录下的sql
+
+        parseScriptPath(); // 2.处理script目录下的sql
+    }
+
+    public void saveToFileForBadSql() throws Exception {
+        /*
+        * 将解析失败的sql保存到本地
+        * */
+        String badSqlString= null;
+        String badSqlFilePath = PropertyFileUtil.getProperty("local_file_path.bad_sql");
+        for (Object badSql: badSqls) {
+            badSqlString += badSql.toString() + ";\n\n";
+        }
+        FileUtil.createFile(badSqlFilePath, badSqlString);
+    }
+
+    public void parseTestSql() throws Exception {
+        String sqlList = FileUtil.read(PropertyFileUtil.getProperty("local_file_path.test_sql"));
+        for (String sql : sqlList.split(";")) {
+            if (sql.contains("insert") || sql.trim().replace("\n", " ").matches("create table.*as\\s.*")) {
+                sql = sql.replace("${", "\"").replace("}", "\"").replace("lateral view", "-- lateral view").replace("LATERAL VIEW", "-- LATERAL VIEW");
+                parseSql(sql);
+            }
+        }
+    }
+
+    public List<String> getBadSqls() {
+        return badSqls;
+    }
+
+}

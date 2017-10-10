@@ -8,11 +8,11 @@ import com.products.bean.ColumnNode;
 import com.products.bean.TableNode;
 import com.products.exception.DBException;
 import com.products.util.Check;
-import com.products.util.DBUtil;
-import com.products.util.DBUtil.DB_TYPE;
+import com.products.util.MysqlUtil;
+import com.products.util.MysqlUtil.DB_TYPE;
 
 public class MetaDataDao {
-    DBUtil dbUtil = new DBUtil(DB_TYPE.META);
+    MysqlUtil dbUtil = new MysqlUtil(DB_TYPE.META);
 
 
     public List<ColumnNode> getColumn(String db, String table) {

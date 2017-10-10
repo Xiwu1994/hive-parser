@@ -7,9 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
-import com.products.util.PropertyFileUtil;
-
-public class DBUtil {
+public class MysqlUtil {
 
     public static enum DB_TYPE {
         META,
@@ -25,7 +23,7 @@ public class DBUtil {
     private String password;
     private Connection conn;
 
-    public DBUtil(DB_TYPE type) {
+    public MysqlUtil(DB_TYPE type) {
         this.driver = PropertyFileUtil.getProperty(type.name().toLowerCase() + ".jdbc.driverClassName");
         this.url = PropertyFileUtil.getProperty(type.name().toLowerCase() + ".jdbc.url");
         this.user = PropertyFileUtil.getProperty(type.name().toLowerCase() + ".jdbc.username");
@@ -115,7 +113,7 @@ public class DBUtil {
 
     public static void main(String[] args) {
         try {
-            DBUtil db = new DBUtil(DB_TYPE.META);
+            MysqlUtil db = new MysqlUtil(DB_TYPE.META);
             List<Map<String, Object>> rs = db.doSelect("select * from t_user limit 5");
             for (Map<String, Object> map : rs) {
                 for (Entry<String, Object> entry : map.entrySet()) {
