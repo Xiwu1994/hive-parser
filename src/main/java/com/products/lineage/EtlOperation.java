@@ -3,11 +3,16 @@ package com.products.lineage;
 import com.products.bean.SQLResult;
 import com.products.parse.LineParser;
 import com.products.util.FileUtil;
+import com.products.util.JsonUtil;
 import com.products.util.PropertyFileUtil;
 import com.products.util.traverseFolder;
 import org.apache.commons.lang.StringUtils;
+import org.neo4j.io.fs.FileUtils;
 import org.yaml.snakeyaml.Yaml;
+
+import java.io.File;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
@@ -15,43 +20,60 @@ import java.util.Map;
 
 public class EtlOperation {
 
-    private InsertNeo4jDB insertNeo4jDB = new InsertNeo4jDB() ;
-    private InsertMysqlDB insertMysqlDB = new InsertMysqlDB() ;
     private boolean isInsertMySQL ;
     private boolean isInsertNeo4j ;
+    private InsertMysqlDB insertMysqlDB;
+    private InsertNeo4jDB insertNeo4jDB;
 
     private List<String> badSqls = new ArrayList<>() ;
 
     public EtlOperation(){
         Boolean insertMySQLFlag = Boolean.parseBoolean(PropertyFileUtil.getProperty("app.insert.mysql.flag")) ;
         Boolean insertNeo4jFlag = Boolean.parseBoolean(PropertyFileUtil.getProperty("app.insert.neo4j.flag")) ;
-        this.isInsertMySQL = insertMySQLFlag ;
-        this.isInsertNeo4j = insertNeo4jFlag ;
-
         Boolean cleanMySQLFlag = Boolean.parseBoolean(PropertyFileUtil.getProperty("app.clean.mysql.database")) ; // 清理mysql table
         Boolean cleanNeo4jFlag = Boolean.parseBoolean(PropertyFileUtil.getProperty("app.clean.neo4j.database")) ; // 清理neo4j table
-        if(cleanMySQLFlag) {
-            insertMysqlDB.cleanDB() ;
-        }
         if(cleanNeo4jFlag) {
-            insertNeo4jDB.cleanDB() ;
+            cleanDBNeo4j() ;
+        }
+        this.isInsertMySQL = insertMySQLFlag ;
+        this.isInsertNeo4j = insertNeo4jFlag ;
+        if(this.isInsertNeo4j) {
+            this.insertNeo4jDB = new InsertNeo4jDB();
+        }
+        if(this.isInsertMySQL) {
+            this.insertMysqlDB = new InsertMysqlDB();
+        }
+        if(cleanMySQLFlag) {
+            this.insertMysqlDB.cleanDB() ;
         }
     }
 
-    private void parseSql(String sql) throws Exception {
+    public void cleanDBNeo4j() {
+        try {
+            String filePath = PropertyFileUtil.getProperty("neo4j.db.path");
+            FileUtils.deleteRecursively(new File(filePath));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void parseSql(String sql) throws Exception {
         /*
         * 解析sql + 入库(mysql OR neo4j)
         * */
         LineParser parser = new LineParser();
         List<SQLResult> result = parser.parse(sql); // 解析SQL
+
+        System.out.printf(JsonUtil.objectToJson(result) + "\n");
+
         if (this.isInsertNeo4j) {
             for (SQLResult oneResult : result) {
-                insertNeo4jDB.insertDB(oneResult);
+                this.insertNeo4jDB.insertDB(oneResult);
             }
         }
         if (this.isInsertMySQL) {
             for (SQLResult oneResult : result) {
-                insertMysqlDB.insertDB(oneResult);
+                this.insertMysqlDB.insertDB(oneResult);
             }
         }
     }
@@ -61,7 +83,7 @@ public class EtlOperation {
         * 获取yaml文件中的sql
         * 注: 一个yaml文件可能多有个sql，所以返回List
         * */
-        LinkedList sqlList = new LinkedList<String>();
+        List<String> sqlList = new ArrayList<>();
         if (filePath.contains("discard")) {
             return sqlList;
         }
@@ -90,20 +112,20 @@ public class EtlOperation {
         /*
         * 解析某一个yaml文件中的 有写入操作的sql
         * */
+        System.out.print("Begin: " + filePath + "\n");
         for (String value: getSqlFromYaml(filePath)) {
             if(StringUtils.isNotEmpty(value)) {
                 if (value.contains("insert") || value.trim().replace("\n", " ").matches("create table.*as\\s.*")) {
                     String sql = value.replace("${", "\"").replace("}", "\"").replace("lateral view", "-- lateral view").replace("LATERAL VIEW", "-- LATERAL VIEW");
                     try {
-                        System.out.print("Begin: " + filePath + "\n");
                         parseSql(sql);
-                        System.out.print("End:   " + filePath + "\n\n");
                     } catch (Exception e) {
                         badSqls.add(sql);
                     }
                 }
             }
         }
+        System.out.print("End:   " + filePath + "\n\n");
     }
 
     public void parseScriptPath() throws Exception {
@@ -122,20 +144,20 @@ public class EtlOperation {
         * 解析某一个sql文件 有写入操作的sql
         * */
         String sqlList = FileUtil.read(filePath);
+        System.out.print("Begin: " + filePath + "\n");
         for (String sql : sqlList.split(";")) {
             if (! filePath.contains("discard")) {
                 if (sql.contains("insert") || sql.trim().replace("\n", " ").matches("create table.*as\\s.*")) {
                     sql = sql.replace("${", "\"").replace("}", "\"").replace("lateral view", "-- lateral view").replace("LATERAL VIEW", "-- LATERAL VIEW");
                     try {
-                        System.out.print("Begin: " + filePath + "\n");
                         parseSql(sql);
-                        System.out.print("End:   " + filePath + "\n\n");
                     } catch(Exception e){
                         badSqls.add(sql);
                     }
                 }
             }
         }
+        System.out.print("End:   " + filePath + "\n\n");
     }
 
     public void parseSqlPath() throws Exception {
@@ -184,5 +206,4 @@ public class EtlOperation {
     public List<String> getBadSqls() {
         return badSqls;
     }
-
 }

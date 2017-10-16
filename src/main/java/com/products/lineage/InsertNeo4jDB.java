@@ -18,16 +18,10 @@ public class InsertNeo4jDB {
     public enum MyLables implements Label {
         Table, Column
     }
+
     private static final String filePath = PropertyFileUtil.getProperty("neo4j.db.path");
     private static final GraphDatabaseService graphDb = new GraphDatabaseFactory().newEmbeddedDatabase(new File(filePath));
 
-    public void cleanDB() {
-        try {
-            FileUtils.deleteRecursively(new File(filePath));
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
 
     public void insertDB(SQLResult oneResult) throws Exception {
         /*
