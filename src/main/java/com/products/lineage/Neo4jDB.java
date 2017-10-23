@@ -46,7 +46,8 @@ public class Neo4jDB {
             String columnFullName = colLine.getToName();
             if(columnFullName == null) {
                 String columnSimpleName = colLine.getToNameParse();
-                columnFullName = outputTable + "." + columnSimpleName;
+                if (columnSimpleName.equals("")) {continue;}
+                else {columnFullName = outputTable + "." + columnSimpleName;}
             }
             if (!neo4jUtil.isExistColumnNodes(columnFullName)) {
                 neo4jUtil.createColumnNode(columnFullName);
@@ -59,6 +60,9 @@ public class Neo4jDB {
                     neo4jUtil.createColumnNode(depColumnName);
                 }
                 if (!neo4jUtil.isExistRelationshipBetweenColumns(columnFullName, depColumnName)) {
+                    if (columnFullName.equals("dwa.dwa_customer_daily_dp.gmv")) {
+                        System.out.printf(depColumnName + "\n");
+                    }
                     neo4jUtil.createRelationshipBetweenColumns(columnFullName, depColumnName);
                 }
             }

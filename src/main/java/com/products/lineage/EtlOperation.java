@@ -3,9 +3,11 @@ package com.products.lineage;
 import com.products.bean.SQLResult;
 import com.products.parse.LineParser;
 import com.products.util.FileUtil;
+import com.products.util.JsonUtil;
 import com.products.util.PropertyFileUtil;
 import com.products.util.traverseFolder;
 import org.apache.commons.lang.StringUtils;
+import org.apache.htrace.fasterxml.jackson.databind.annotation.JacksonStdImpl;
 import org.yaml.snakeyaml.Yaml;
 import java.io.FileInputStream;
 import java.util.ArrayList;
@@ -47,6 +49,7 @@ public class EtlOperation {
         * */
         LineParser parser = new LineParser();
         List<SQLResult> result = parser.parse(sql); // 解析SQL
+        System.out.println(JsonUtil.objectToJson(result));
 
         if (this.isInsertNeo4j) {
             for (SQLResult oneResult : result) {
@@ -183,8 +186,9 @@ public class EtlOperation {
 
     public void parseTestSql() throws Exception {
         String sqlList = FileUtil.read(PropertyFileUtil.getProperty("local_file_path.test_sql"));
+        this.neo4jDB.cleanDB();
         for (String sql : sqlList.split(";")) {
-            sql = sql.replace("${", "\"").replace("}", "\"");
+            sql = sql.replace("${", "'").replace("}", "'").replace("\\\"", " ");
             parseSql(sql);
         }
     }
