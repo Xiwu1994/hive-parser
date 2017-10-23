@@ -3,16 +3,11 @@ package com.products.lineage;
 import com.products.bean.SQLResult;
 import com.products.parse.LineParser;
 import com.products.util.FileUtil;
-import com.products.util.JsonUtil;
 import com.products.util.PropertyFileUtil;
 import com.products.util.traverseFolder;
 import org.apache.commons.lang.StringUtils;
-import org.neo4j.io.fs.FileUtils;
 import org.yaml.snakeyaml.Yaml;
-
-import java.io.File;
 import java.io.FileInputStream;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
@@ -25,7 +20,6 @@ public class EtlOperation {
     private boolean isInsertMySQL ;
     private boolean isInsertNeo4j ;
     private InsertMysqlDB insertMysqlDB;
-//    private InsertNeo4jDB insertNeo4jDB;
     private Neo4jDB neo4jDB;
 
     private List<String> badSqls = new ArrayList<>() ;
@@ -168,6 +162,7 @@ public class EtlOperation {
         /*
         * 处理仓库代码中有写入操作的sql
         * */
+        this.neo4jDB.cleanDB();
 
         parseSqlPath(); // 1.处理sql目录下的sql
 

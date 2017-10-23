@@ -8,10 +8,23 @@ import org.neo4j.driver.v1.*;
 
 import static org.neo4j.driver.v1.Values.parameters;
 
+/**
+ *  java -jar  hive-parser.jar /home/yunxiao/hello/app.properties
+ */
 public class App {
     public static void main(String[] args) throws Exception {
-        EtlOperation operation = new EtlOperation() ;
+
+        if(args.length > 0){
+            String path = args[0] ;
+            PropertyFileUtil.init(path);
+        }else{
+            PropertyFileUtil.init("/app.properties");
+        }
+
         Boolean testFlag  = Boolean.parseBoolean(PropertyFileUtil.getProperty("app.test")) ; //是否测试
+
+        EtlOperation operation = new EtlOperation() ;
+
         if (testFlag) {
             // 是否测试
             operation.parseTestSql() ;

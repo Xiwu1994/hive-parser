@@ -92,9 +92,17 @@ public class Neo4jDB {
         System.out.print("End:   " + filePath + "\n\n");
     }
 
+
+    public void cleanDB() {
+        try {
+            neo4jUtil.cleanDB();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
     public static void main(String[] args) {
         Neo4jDB neo4jDB = new Neo4jDB();
-        neo4jUtil.cleanDB();
         try {
             //neo4jDB.parseSqlFile(PropertyFileUtil.getProperty("local_file_path.test_sql"));
         } catch (Exception e) {

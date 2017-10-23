@@ -14,32 +14,22 @@ public class PropertyFileUtil {
         return properties != null;
     }
 
-//    public static void init() {
-//        String runFile = "app.properties";
-//        if (FileUtil.exist(runFile)) {
-//            loadProperty(runFile);
-//            return;
-//        }
-//
+    public static void init(String path) {
+
+        InputStream is = PropertyFileUtil.class.getClass().getResourceAsStream(path);
+        if (null != is) {
+            loadProperty(is);
+            return;
+        }
+
+    }
+
+//    static  {
 //        InputStream is = PropertyFileUtil.class.getClass().getResourceAsStream("/app.properties");
 //        if (null != is) {
 //            loadProperty(is);
-//            return;
-//        }
-//
-//        String debugFile = "resources/app.properties";
-//        if (FileUtil.exist(debugFile)) {
-//            loadProperty(debugFile);
-//            return;
 //        }
 //    }
-
-    static  {
-        InputStream is = PropertyFileUtil.class.getClass().getResourceAsStream("/app.properties");
-        if (null != is) {
-            loadProperty(is);
-        }
-    }
 
     private static void loadProperty(String file) {
         properties = new Properties();
