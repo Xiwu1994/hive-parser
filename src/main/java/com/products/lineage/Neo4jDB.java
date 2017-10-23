@@ -10,8 +10,9 @@ import java.util.List;
 public class Neo4jDB {
     static final boolean debugFlag = false;
 
-    static final String url = "bolt://localhost:7687";
-    static final Neo4jUtil neo4jUtil = new Neo4jUtil(url, "neo4j", "root");
+    static final String url = PropertyFileUtil.getProperty("neo4j.host");
+    static final Neo4jUtil neo4jUtil = new Neo4jUtil(url, PropertyFileUtil.getProperty("neo4j.user"),
+            PropertyFileUtil.getProperty("neo4j.password"));
 
     public void insertDB(SQLResult oneResult) throws Exception {
         /*
