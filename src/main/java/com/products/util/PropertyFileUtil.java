@@ -15,13 +15,12 @@ public class PropertyFileUtil {
     }
 
     public static void init(String path) {
-
         InputStream is = PropertyFileUtil.class.getClass().getResourceAsStream(path);
         if (null != is) {
             loadProperty(is);
+            System.out.println("properties init success\n");
             return;
         }
-
     }
 
 //    static  {
