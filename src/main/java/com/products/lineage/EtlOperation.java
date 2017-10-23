@@ -20,10 +20,13 @@ import java.util.Map;
 
 public class EtlOperation {
 
+    static final boolean debugFlag = false;
+
     private boolean isInsertMySQL ;
     private boolean isInsertNeo4j ;
     private InsertMysqlDB insertMysqlDB;
-    private InsertNeo4jDB insertNeo4jDB;
+//    private InsertNeo4jDB insertNeo4jDB;
+    private Neo4jDB neo4jDB;
 
     private List<String> badSqls = new ArrayList<>() ;
 
@@ -31,29 +34,16 @@ public class EtlOperation {
         Boolean insertMySQLFlag = Boolean.parseBoolean(PropertyFileUtil.getProperty("app.insert.mysql.flag")) ;
         Boolean insertNeo4jFlag = Boolean.parseBoolean(PropertyFileUtil.getProperty("app.insert.neo4j.flag")) ;
         Boolean cleanMySQLFlag = Boolean.parseBoolean(PropertyFileUtil.getProperty("app.clean.mysql.database")) ; // 清理mysql table
-        Boolean cleanNeo4jFlag = Boolean.parseBoolean(PropertyFileUtil.getProperty("app.clean.neo4j.database")) ; // 清理neo4j table
-        if(cleanNeo4jFlag) {
-            cleanDBNeo4j() ;
-        }
         this.isInsertMySQL = insertMySQLFlag ;
         this.isInsertNeo4j = insertNeo4jFlag ;
         if(this.isInsertNeo4j) {
-            this.insertNeo4jDB = new InsertNeo4jDB();
+            this.neo4jDB = new Neo4jDB();
         }
         if(this.isInsertMySQL) {
             this.insertMysqlDB = new InsertMysqlDB();
         }
         if(cleanMySQLFlag) {
             this.insertMysqlDB.cleanDB() ;
-        }
-    }
-
-    public void cleanDBNeo4j() {
-        try {
-            String filePath = PropertyFileUtil.getProperty("neo4j.db.path");
-            FileUtils.deleteRecursively(new File(filePath));
-        } catch (IOException e) {
-            e.printStackTrace();
         }
     }
 
@@ -64,11 +54,12 @@ public class EtlOperation {
         LineParser parser = new LineParser();
         List<SQLResult> result = parser.parse(sql); // 解析SQL
 
-        System.out.printf(JsonUtil.objectToJson(result) + "\n");
-
         if (this.isInsertNeo4j) {
             for (SQLResult oneResult : result) {
-                this.insertNeo4jDB.insertDB(oneResult);
+                if (debugFlag) {
+                    System.out.printf("insert neo4j db \n");
+                }
+                this.neo4jDB.insertDB(oneResult);
             }
         }
         if (this.isInsertMySQL) {
@@ -112,20 +103,22 @@ public class EtlOperation {
         /*
         * 解析某一个yaml文件中的 有写入操作的sql
         * */
-        System.out.print("Begin: " + filePath + "\n");
-        for (String value: getSqlFromYaml(filePath)) {
-            if(StringUtils.isNotEmpty(value)) {
-                if (value.contains("insert") || value.trim().replace("\n", " ").matches("create table.*as\\s.*")) {
-                    String sql = value.replace("${", "\"").replace("}", "\"").replace("lateral view", "-- lateral view").replace("LATERAL VIEW", "-- LATERAL VIEW");
-                    try {
-                        parseSql(sql);
-                    } catch (Exception e) {
-                        badSqls.add(sql);
+        if (! filePath.contains("discard") && ! filePath.contains("patch_up_historical_data")) {
+            for (String value : getSqlFromYaml(filePath)) {
+                if (StringUtils.isNotEmpty(value)) {
+                    if (value.contains("insert") || value.trim().replace("\n", " ").matches("create table.*as\\s.*")) {
+                        String sql = value.replace("${", "\"").replace("}", "\"").replace("\\\"", " ");
+                        System.out.print("Begin: " + filePath + "\n");
+                        try {
+                            parseSql(sql);
+                        } catch (Exception e) {
+                            badSqls.add(sql);
+                        }
+                        System.out.print("End:   " + filePath + "\n\n");
                     }
                 }
             }
         }
-        System.out.print("End:   " + filePath + "\n\n");
     }
 
     public void parseScriptPath() throws Exception {
@@ -143,21 +136,21 @@ public class EtlOperation {
         /*
         * 解析某一个sql文件 有写入操作的sql
         * */
-        String sqlList = FileUtil.read(filePath);
-        System.out.print("Begin: " + filePath + "\n");
-        for (String sql : sqlList.split(";")) {
-            if (! filePath.contains("discard")) {
+        if (! filePath.contains("discard") && ! filePath.contains("patch_up_historical_data")) {
+            System.out.print("Begin: " + filePath + "\n");
+            String sqlList = FileUtil.read(filePath);
+            for (String sql : sqlList.split(";")) {
                 if (sql.contains("insert") || sql.trim().replace("\n", " ").matches("create table.*as\\s.*")) {
-                    sql = sql.replace("${", "\"").replace("}", "\"").replace("lateral view", "-- lateral view").replace("LATERAL VIEW", "-- LATERAL VIEW");
+                    sql = sql.replace("${", "'").replace("}", "'").replace("\\\"", " ");
                     try {
                         parseSql(sql);
-                    } catch(Exception e){
+                    } catch (Exception e) {
                         badSqls.add(sql);
                     }
                 }
             }
+            System.out.print("End:   " + filePath + "\n\n");
         }
-        System.out.print("End:   " + filePath + "\n\n");
     }
 
     public void parseSqlPath() throws Exception {
@@ -196,14 +189,21 @@ public class EtlOperation {
     public void parseTestSql() throws Exception {
         String sqlList = FileUtil.read(PropertyFileUtil.getProperty("local_file_path.test_sql"));
         for (String sql : sqlList.split(";")) {
-            if (sql.contains("insert") || sql.trim().replace("\n", " ").matches("create table.*as\\s.*")) {
-                sql = sql.replace("${", "\"").replace("}", "\"").replace("lateral view", "-- lateral view").replace("LATERAL VIEW", "-- LATERAL VIEW");
-                parseSql(sql);
-            }
+            sql = sql.replace("${", "\"").replace("}", "\"");
+            parseSql(sql);
         }
     }
 
     public List<String> getBadSqls() {
         return badSqls;
+    }
+
+    public static void main(String[] args) {
+        EtlOperation etlOperation = new EtlOperation();
+        try {
+            etlOperation.parseSqlFile(PropertyFileUtil.getProperty("local_file_path.test_sql"));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 }

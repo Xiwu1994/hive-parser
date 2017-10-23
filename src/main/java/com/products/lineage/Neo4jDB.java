@@ -8,6 +8,8 @@ import com.products.util.*;
 import java.util.List;
 
 public class Neo4jDB {
+    static final boolean debugFlag = false;
+
     static final String url = "bolt://localhost:7687";
     static final Neo4jUtil neo4jUtil = new Neo4jUtil(url, "neo4j", "root");
 
@@ -21,11 +23,17 @@ public class Neo4jDB {
             outputTable = tableName;
         }
         if (!neo4jUtil.isExistTableNodes(outputTable)) { // 将输出表入库
+            if (debugFlag) {
+                System.out.printf("outputTable: " + outputTable + "\n");
+            }
             neo4jUtil.createTableNode(outputTable);
         }
         for (String tableName: oneResult.getInputTables()) { // 将输入表入库并且添加依赖关系
             if (tableName.equals(outputTable)) {continue;}
             if (!neo4jUtil.isExistTableNodes(tableName)) {
+                if (debugFlag) {
+                    System.out.printf("inPutTable: " + tableName + "\n");
+                }
                 neo4jUtil.createTableNode(tableName);
             }
             if (!neo4jUtil.isExistRelationshipBetweenTables(outputTable, tableName)) {
@@ -41,17 +49,17 @@ public class Neo4jDB {
             }
             if (!neo4jUtil.isExistColumnNodes(columnFullName)) {
                 neo4jUtil.createColumnNode(columnFullName);
-                //TODO 字段的计算方法
-                //字段之间的依赖关系
-                for (String depColumnName: colLine.getFromNameSet()) {
-                    if(!neo4jUtil.isExistColumnNodes(depColumnName)) {
-                        neo4jUtil.createColumnNode(depColumnName);
-                        neo4jUtil.createRelationshipBetweenColumns(columnFullName, depColumnName);
-                    } else if (!neo4jUtil.isExistRelationshipBetweenColumns(columnFullName, depColumnName)) {
-                        neo4jUtil.createRelationshipBetweenColumns(columnFullName, depColumnName);
-                    }
+            }
+            //TODO 字段的计算方法
+            //TODO 字段和表之间所属关系(需要做吗？)
+            //字段之间的依赖关系
+            for (String depColumnName: colLine.getFromNameSet()) {
+                if(!neo4jUtil.isExistColumnNodes(depColumnName)) {
+                    neo4jUtil.createColumnNode(depColumnName);
                 }
-                //TODO 字段和表之间所属关系(需要做吗？)
+                if (!neo4jUtil.isExistRelationshipBetweenColumns(columnFullName, depColumnName)) {
+                    neo4jUtil.createRelationshipBetweenColumns(columnFullName, depColumnName);
+                }
             }
         }
     }
@@ -62,19 +70,20 @@ public class Neo4jDB {
         * */
         LineParser parser = new LineParser();
         String sqlList = FileUtil.read(filePath);
+        if (debugFlag) {
+            System.out.printf("00" + "\n");
+        }
         System.out.print("Begin: " + filePath + "\n");
-        for (String sql : sqlList.split(";")) {
-            if (! filePath.contains("discard")) {
+        if (! filePath.contains("discard")) {
+            for (String sql : sqlList.split(";")) {
                 if (sql.contains("insert") || sql.trim().replace("\n", " ").matches("create table.*as\\s.*")) {
-                    sql = sql.replace("${", "\"").replace("}", "\"");//.replace("lateral view", "-- lateral view").replace("LATERAL VIEW", "-- LATERAL VIEW");
-                    System.out.printf(sql + "\n");
+                    sql = sql.replace("${", "\"").replace("}", "\"").replace("\\\"", " ");
                     try {
                         List<SQLResult> result = parser.parse(sql); // 解析SQL
-                        System.out.printf(JsonUtil.objectToJson(result) + "\n");
                         for (SQLResult oneResult : result) {
                             insertDB(oneResult);
                         }
-                    } catch(Exception e) {
+                    } catch (Exception e) {
                         e.printStackTrace();
                     }
                 }
@@ -85,9 +94,9 @@ public class Neo4jDB {
 
     public static void main(String[] args) {
         Neo4jDB neo4jDB = new Neo4jDB();
-        //neo4jUtil.cleanDB();
+        neo4jUtil.cleanDB();
         try {
-            neo4jDB.parseSqlFile(PropertyFileUtil.getProperty("local_file_path.test_sql"));
+            //neo4jDB.parseSqlFile(PropertyFileUtil.getProperty("local_file_path.test_sql"));
         } catch (Exception e) {
             e.printStackTrace();
         }

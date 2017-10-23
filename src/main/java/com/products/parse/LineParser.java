@@ -5,6 +5,7 @@ import java.util.Map.Entry;
 
 import com.products.util.*;
 import org.antlr.runtime.tree.Tree;
+import org.apache.avro.data.Json;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.Context;
@@ -23,7 +24,7 @@ import com.products.exception.UnSupportedException;
 
 public class LineParser {
 
-    private static final Boolean debugFlag = true;
+    private static final Boolean debugFlag = false;
 
     private static final String SPLIT_DOT = ".";
     private static final String SPLIT_COMMA = ",";
@@ -52,13 +53,11 @@ public class LineParser {
     private String nowQueryDB = "default";
     private boolean isCreateTable = false;
 
-
     private List<SQLResult> resultList = new ArrayList<SQLResult>();
     private List<ColLine> colLines = new ArrayList<ColLine>();
     private Set<String> outputTables = new HashSet<String>();
     private Set<String> inputTables = new HashSet<String>();
     private Set<String> dependenceColunmList = new HashSet<String>();
-
 
     private void parseIteral(ASTNode ast) {
         if(debugFlag) {
@@ -67,9 +66,14 @@ public class LineParser {
         prepareToParseCurrentNodeAndChilds(ast); //有join操作的时候入栈
         parseChildNodes(ast); //深度遍历，递归处理子节点
         parseCurrentNode(ast);
+        if (debugFlag) {
+            if (ast.getText() == null || ast.getText().equals("other_fcc_ids")) {
+                System.out.printf("debug poing\n");
+            }
+            System.out.printf("cols: "+JsonUtil.objectToJson(cols) + " conditions: " + JsonUtil.objectToJson(conditions) + "\n");
+        }
         endParseCurrentNode(ast);
     }
-
 
     private void parseCurrentNode(ASTNode ast) {
         if (ast.getToken() != null) {
@@ -138,7 +142,7 @@ public class LineParser {
                         }
                     }
                     break;
-                case HiveParser.TOK_SUBQUERY:
+                case HiveParser.TOK_SUBQUERY: //laterval view 可以参考这个，弄一个别名， 入库的表存起来
                     if (ast.getChildCount() == 2) { //通过判断是否有别名, 说明子阶段已经完成, 需处理queryTreeList
                         String tableAlias = BaseSemanticAnalyzer.unescapeIdentifier(ast.getChild(1).getText());
                         String aliaReal = "";
@@ -175,11 +179,37 @@ public class LineParser {
                     Tree parentParentTree = ast.getParent().getParent();
                     if (parentParentTree.getText().equals("TOK_LATERAL_VIEW")) {
                         /*
-                        * lateral view = left join (只是没有on)
-                        * select 字段  from上面那张表
-                        * TODO
+                        * lateral view
                         * */
+                        String destTable = "laterview";
+                        Block bk = getBlockIteral((ASTNode) ast.getChild(0));
+                        String toNameParse = getToNameParse(ast, bk);
+                        Set<String> fromNameSet = filterData(bk.getColSet());
+                        ColLine cl = new ColLine(toNameParse, bk.getCondition(), fromNameSet, new LinkedHashSet<String>(), destTable, "");
+                        cols.add(cl);
 
+                        QueryTree qt = new QueryTree();
+                        qt.setCurrent(destTable.toLowerCase());
+                        qt.setColLineList(generateColLineList(cols, conditions));
+                        QueryTree pTree = getSubQueryParent(ast);
+                        qt.setId(generateTreeId(ast));
+                        qt.setpId(pTree.getpId());
+                        qt.setParent(pTree.getParent());
+                        qt.setChildList(getSubQueryChilds(qt.getId()));
+                        if (Check.notEmpty(qt.getChildList())) {
+                            for (QueryTree cqt : qt.getChildList()) {
+                                qt.getTableSet().addAll(cqt.getTableSet());
+                                queryTreeList.remove(cqt);
+                            }
+                        }
+                        queryTreeList.add(qt);
+                        cols.clear();
+                        queryMap.clear();
+                        for (QueryTree _qt : queryTreeList) {
+                            if (qt.getParent().equals(_qt.getParent())) {
+                                queryMap.put(_qt.getCurrent(), _qt);
+                            }
+                        }
                     }
                     else {
                         Tree child = parentParentTree.getChild(0).getChild(0);
@@ -233,7 +263,6 @@ public class LineParser {
                                                 }
                                             }
                                         }
-                                        System.out.print("1" + JsonUtil.objectToJson(cl) + "\n");
                                         cols.add(cl);
                                     }
                                 }
@@ -243,6 +272,7 @@ public class LineParser {
                             String toNameParse = getToNameParse(ast, bk);
                             Set<String> fromNameSet = filterData(bk.getColSet());
                             ColLine cl = new ColLine(toNameParse, bk.getCondition(), fromNameSet, new LinkedHashSet<String>(), destTable, "");
+                            cols.add(cl);
                             //XIWU
                             for (String dependenceColunms : cl.getFromNameSet()) {
                                 //System.out.print("dependenceColunms: " + dependenceColunms + "\n");
@@ -252,8 +282,6 @@ public class LineParser {
                                     }
                                 }
                             }
-                            System.out.print("2"+ JsonUtil.objectToJson(cl) + "\n");
-                            cols.add(cl);
                         }
                     }
                     break;
@@ -335,6 +363,7 @@ public class LineParser {
                 && child.getChild(0).getType() == HiveParser.Identifier) {
             alia = BaseSemanticAnalyzer.unescapeIdentifier(child.getChild(0).getText());
         }
+
         return alia;
     }
 
@@ -460,6 +489,9 @@ public class LineParser {
 
 
     private void putResultQueryMap(int sqlIndex, String tableAlias) {
+        if (debugFlag) {
+            System.out.printf("cols: "+JsonUtil.objectToJson(cols) + " conditions: " + JsonUtil.objectToJson(conditions) + "\n");
+        }
         List<ColLine> list = generateColLineList(cols, conditions);
         String key = sqlIndex == 0 ? tableAlias : tableAlias + sqlIndex;
         resultQueryMap.put(key, list);
@@ -622,11 +654,33 @@ public class LineParser {
     private void parseChildNodes(ASTNode ast) {
         int numCh = ast.getChildCount();
         if (numCh > 0) {
-            for (int num = 0; num < numCh; num++) {
-                ASTNode child = (ASTNode) ast.getChild(num);
-                parseIteral(child);
+            if (ast.getToken() != null) {
+                if ((ast.getToken().getType() == HiveParser.TOK_LATERAL_VIEW ||
+                        ast.getToken().getType() == HiveParser.TOK_LATERAL_VIEW_OUTER ) ) {
+                    for (int num = 1; num < numCh; num++) {
+                        ASTNode child = (ASTNode) ast.getChild(num);
+                        parseIteral(child);
+                    }
+                    parseIteral((ASTNode) ast.getChild(0)); //最后处理Select
+                } else {
+                    for (int num = 0; num < numCh; num++) {
+                        ASTNode child = (ASTNode) ast.getChild(num);
+                        parseIteral(child);
+                    }
+                }
+            } else {
+                for (int num = 0; num < numCh; num++) {
+                    ASTNode child = (ASTNode) ast.getChild(num);
+                    parseIteral(child);
+                }
             }
         }
+//        if (numCh > 0) {
+//            for (int num = 0; num < numCh; num++) {
+//                ASTNode child = (ASTNode) ast.getChild(num);
+//                parseIteral(child);
+//            }
+//        }
     }
 
     private void prepareToParseCurrentNodeAndChilds(ASTNode ast) {
