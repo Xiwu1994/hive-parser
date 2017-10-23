@@ -10,22 +10,15 @@ import org.apache.hadoop.util.StringUtils;
  */
 public class App {
     public static void main(String[] args) throws Exception {
-
         System.out.println("参数:" + StringUtils.join(",", args));
-
         if(args.length > 0){
             String path = args[0] ;
-            System.out.println(path);
             PropertyFileUtil.init(path);
         }else{
-            System.out.println("1");
             PropertyFileUtil.init("/app.properties");
         }
-
         Boolean testFlag  = Boolean.parseBoolean(PropertyFileUtil.getProperty("app.test")) ; //是否测试
-
         EtlOperation operation = new EtlOperation() ;
-
         if (testFlag) {
             // 是否测试
             operation.parseTestSql() ;
