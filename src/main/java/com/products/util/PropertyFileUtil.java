@@ -42,7 +42,6 @@ public class PropertyFileUtil {
         }
     }
 
-
     private static void loadProperty(InputStream is) {
         properties = new Properties();
         try {
@@ -53,7 +52,6 @@ public class PropertyFileUtil {
             e.printStackTrace();
         }
     }
-
 
     public static String getProperty(String key) {
         return properties.getProperty(key);
