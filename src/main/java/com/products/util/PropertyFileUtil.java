@@ -15,6 +15,7 @@ public class PropertyFileUtil {
     }
 
     public static void init(String path) {
+        System.out.println("path: " + path + "\n");
         InputStream is = PropertyFileUtil.class.getClass().getResourceAsStream(path);
         if (null != is) {
             loadProperty(is);
