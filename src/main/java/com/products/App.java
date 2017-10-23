@@ -4,6 +4,7 @@ import com.products.lineage.EtlOperation;
 import com.products.util.JsonUtil;
 import com.products.util.PropertyFileUtil;
 
+import org.apache.hadoop.util.StringUtils;
 import org.neo4j.driver.v1.*;
 
 import static org.neo4j.driver.v1.Values.parameters;
@@ -13,6 +14,8 @@ import static org.neo4j.driver.v1.Values.parameters;
  */
 public class App {
     public static void main(String[] args) throws Exception {
+
+        System.out.println("参数:" + StringUtils.join(",", args));
 
         if(args.length > 0){
             String path = args[0] ;
