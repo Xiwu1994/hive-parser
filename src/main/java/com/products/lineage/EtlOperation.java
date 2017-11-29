@@ -49,7 +49,7 @@ public class EtlOperation {
         * */
         LineParser parser = new LineParser();
         List<SQLResult> result = parser.parse(sql); // 解析SQL
-        System.out.println(JsonUtil.objectToJson(result));
+        //System.out.println(JsonUtil.objectToJson(result));
 
         if (this.isInsertNeo4j) {
             for (SQLResult oneResult : result) {

@@ -60,9 +60,6 @@ public class Neo4jDB {
                     neo4jUtil.createColumnNode(depColumnName);
                 }
                 if (!neo4jUtil.isExistRelationshipBetweenColumns(columnFullName, depColumnName)) {
-                    if (columnFullName.equals("dwa.dwa_customer_daily_dp.gmv")) {
-                        System.out.printf(depColumnName + "\n");
-                    }
                     neo4jUtil.createRelationshipBetweenColumns(columnFullName, depColumnName);
                 }
             }
