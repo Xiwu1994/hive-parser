@@ -49,7 +49,14 @@ public class EtlOperation {
         * */
         LineParser parser = new LineParser();
         List<SQLResult> result = parser.parse(sql); // 解析SQL
-        //System.out.println(JsonUtil.objectToJson(result));
+//        System.out.println(JsonUtil.objectToJson(result));
+
+        for (SQLResult res: result) {
+            for(String inputTable: res.getInputTables())
+            {
+                System.out.printf(inputTable + "\n");
+            }
+        }
 
         if (this.isInsertNeo4j) {
             for (SQLResult oneResult : result) {
@@ -186,7 +193,7 @@ public class EtlOperation {
 
     public void parseTestSql() throws Exception {
         String sqlList = FileUtil.read(PropertyFileUtil.getProperty("local_file_path.test_sql"));
-        this.neo4jDB.cleanDB();
+//        this.neo4jDB.cleanDB();
         for (String sql : sqlList.split(";")) {
             sql = sql.replace("${", "'").replace("}", "'").replace("\\\"", " ");
             parseSql(sql);

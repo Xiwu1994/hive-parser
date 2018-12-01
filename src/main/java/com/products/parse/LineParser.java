@@ -90,7 +90,9 @@ public class LineParser {
                     outputTables.add(tableOut2);
                     MetaCache.getInstance().init(tableOut2);
                     break;
-                case HiveParser.TOK_TABREF: //FROM 依赖表名
+                // process -> from tableName
+                // queryTreeList.add(qt),  queryMap.put(qt.getCurrent(), qt) or 同级别的join的qt;
+                case HiveParser.TOK_TABREF:
                     ASTNode tabTree = (ASTNode) ast.getChild(0);
                     String tableInFull = fillDB((tabTree.getChildCount() == 1) ? /*获取表名 <判断了是否带库名>*/
                             BaseSemanticAnalyzer.getUnescapedName((ASTNode) tabTree.getChild(0))
@@ -99,22 +101,38 @@ public class LineParser {
                     );
                     String tableIn = tableInFull.substring(tableInFull.indexOf(SPLIT_DOT) + 1);
                     inputTables.add(tableInFull);
+                    // MetaCache.init
+                    // 将table的hive元数据信息
+                    // ->  cMap(tableName,columNode), tableMap(tableName,tableId), columnMap(db.table.column, columnId)
                     MetaCache.getInstance().init(tableInFull);
                     queryMap.clear();
                     String alia = null;
-                    if (ast.getChild(1) != null) { //判断是否有表的别名
+                    if (ast.getChild(1) != null) {
+                        //判断是否有表的别名
                         alia = ast.getChild(1).getText().toLowerCase();
                         QueryTree qt = new QueryTree();
                         qt.setCurrent(alia);
                         qt.getTableSet().add(tableInFull);
-                        QueryTree pTree = getSubQueryParent(ast); /*没看懂*/
+                        // 生成pTree,用来找到 TOK_SUBQUERY 的 parent
+                        QueryTree pTree = getSubQueryParent(ast);
                         qt.setpId(pTree.getpId());
                         qt.setParent(pTree.getParent());
-                        queryTreeList.add(qt); // queryTreeList 干嘛用的
+                        // TODO: queryTreeList 干嘛用的
+                        queryTreeList.add(qt);
+                        // 判断是否有 TOK_QUERY里 同级别 join 操作
                         if (joinClause && ast.getParent() == joinOn) {
                             for (QueryTree entry : queryTreeList) {
+                                /*
+                                * from
+                                * (
+                                *   select xxx
+                                *   from table1
+                                *   join table2 on t1.id=t2.id
+                                * ) tmp
+                                * */
                                 if (qt.getParent().equals(entry.getParent())) {
-                                    queryMap.put(entry.getCurrent(), entry); //queryMap 干嘛用的
+                                    //TODO: queryMap 干嘛用的
+                                    queryMap.put(entry.getCurrent(), entry);
                                 }
                             }
                         } else {
@@ -136,20 +154,23 @@ public class LineParser {
                                     queryMap.put(entry.getCurrent(), entry);
                                 }
                             }
-                        } else {//为什么要put两次? 一次带库名+表名  还一次表名
+                        } else {
+                            //TODO 为什么要put两次? 一次带库名+表名  还一次表名
                             queryMap.put(qt.getCurrent(), qt);
                             queryMap.put(tableInFull.toLowerCase(), qt);
                         }
                     }
                     break;
-                case HiveParser.TOK_SUBQUERY: //laterval view 可以参考这个，弄一个别名， 入库的表存起来
-                    if (ast.getChildCount() == 2) { //通过判断是否有别名, 说明子阶段已经完成, 需处理queryTreeList
+                //TODO: laterval view 可以参考这个，弄一个别名， 入库的表存起来
+                case HiveParser.TOK_SUBQUERY:
+                    // 通过判断是否有别名, 说明子阶段已经完成, 需处理queryTreeList  ???  一定有别名好吧
+                    if (ast.getChildCount() == 2) {
                         String tableAlias = BaseSemanticAnalyzer.unescapeIdentifier(ast.getChild(1).getText());
-                        String aliaReal = "";
-                        if (aliaReal.length() != 0) {
-                            aliaReal = aliaReal.substring(0, aliaReal.length() - 1);
-                        }
-
+                        // wtf 什么鬼代码
+//                        String aliaReal = "";
+//                        if (aliaReal.length() != 0) {
+//                            aliaReal = aliaReal.substring(0, aliaReal.length() - 1);
+//                        }
                         QueryTree qt = new QueryTree();
                         qt.setCurrent(tableAlias.toLowerCase());
                         qt.setColLineList(generateColLineList(cols, conditions));
@@ -157,9 +178,12 @@ public class LineParser {
                         qt.setId(generateTreeId(ast));
                         qt.setpId(pTree.getpId());
                         qt.setParent(pTree.getParent());
+                        // 获取TOK_SUBQUERY 下所有的 TOK_TABREF 操作
                         qt.setChildList(getSubQueryChilds(qt.getId()));
                         if (Check.notEmpty(qt.getChildList())) {
+                            // 继承操作一波!
                             for (QueryTree cqt : qt.getChildList()) {
+                                // 获取TOK_QUERY 底下所有的 <from tableName>
                                 qt.getTableSet().addAll(cqt.getTableSet());
                                 queryTreeList.remove(cqt);
                             }
@@ -214,7 +238,8 @@ public class LineParser {
                     else {
                         Tree child = parentParentTree.getChild(0).getChild(0);
                         String tName = BaseSemanticAnalyzer.getUnescapedName((ASTNode) child.getChild(0));
-                        String destTable = TOK_TMP_FILE.equals(tName) ? TOK_TMP_FILE : fillDB(tName); // 获取将要插入的表名
+                        // 获取将要插入的表名
+                        String destTable = TOK_TMP_FILE.equals(tName) ? TOK_TMP_FILE : fillDB(tName);
 
                         if (ast.getChild(0).getType() == HiveParser.TOK_ALLCOLREF) {
                             String tableOrAlias = "";
@@ -296,6 +321,7 @@ public class LineParser {
                     break;
                 default:
                     // 按照栈的后进先出的顺序，依次处理Join操作
+                    // Mark: 这里可以不用做操作，因为 on 的内容我不关心 我只关心 字段和表之间的依赖关系
                     if (joinOn != null && joinOn.getTokenStartIndex() == ast.getTokenStartIndex()
                             && joinOn.getTokenStopIndex() == ast.getTokenStopIndex()) {
                         ASTNode astCon = (ASTNode) ast.getChild(2);
@@ -318,6 +344,11 @@ public class LineParser {
 
 
     private QueryTree getSubQueryParent(Tree ast) {
+        /*
+        * 找到当前节点 所有祖先父亲 节点 是否存在 TOK_SUBQUERY
+        * 如果有 -> pId 为TOK_SUBQUERY的 startIndex + stopIndex, parent 为TOK_SUBQUERY的别名
+        *    无 -> pId 为-1, parent 为NIL
+        * */
         Tree _tree = ast;
         QueryTree qt = new QueryTree();
         while (!(_tree = _tree.getParent()).isNil()) {
@@ -532,6 +563,13 @@ public class LineParser {
                 && ast.getChild(0).getType() == HiveParser.TOK_TABLE_OR_COL
                 && ast.getChild(0).getChildCount() == 1
                 && ast.getChild(1).getType() == HiveParser.Identifier) {
+            /*
+            * 满足这种结构  有别名
+            * .
+            *   TOK_TABLE_OR_COL
+            *     aliasName
+            *   columName
+            * */
 
             String column = BaseSemanticAnalyzer.unescapeIdentifier(ast.getChild(1).getText());
             String alia = BaseSemanticAnalyzer.unescapeIdentifier(ast.getChild(0).getChild(0).getText());
@@ -541,6 +579,11 @@ public class LineParser {
         } else if (ast.getType() == HiveParser.TOK_TABLE_OR_COL
                 && ast.getChildCount() == 1
                 && ast.getChild(0).getType() == HiveParser.Identifier) {
+            /*
+            * 满足这种结构 无别名
+            * TOK_TABLE_OR_COL
+            *   columName
+            * */
             String column = ast.getChild(0).getText();
 
 
@@ -571,7 +614,11 @@ public class LineParser {
     }
 
 
+    /*
+    * 通过 aliasName.columName 获取到 真实的 _realTable  即 t1.id -> tableName.id
+    * */
     private Block getBlock(String column, String alia, HashMap<String, List> tableColumn) {
+        // alias -> {别名对应的tableNameList, alias}
         String[] result = getTableAndAlia(alia);
         String tableArray = result[0];
         String _alia = result[1];
@@ -579,9 +626,9 @@ public class LineParser {
             QueryTree qt = queryMap.get(string.toLowerCase());
 
             if (Check.notEmpty(column)) {
-                // xiwu
                 if (qt != null ) {
                     for (ColLine colLine : qt.getColLineList()) {
+                        // 如果参数 column 等于 subquery里的select column
                         if (column.equalsIgnoreCase(colLine.getToNameParse())) {
                             Block bk = new Block();
                             bk.setCondition(colLine.getColCondition());
@@ -624,6 +671,7 @@ public class LineParser {
                 for (String col : colByTab) {
                     if (column.equalsIgnoreCase(col)) {
                         _realTable = tables;
+                        // 同一个字段来源cnt个表, 如果大于1 表示同一个字段来源多个表
                         cnt++;
                     }
                 }
@@ -915,6 +963,10 @@ public class LineParser {
     }
 
 
+    /*
+    * fillDB:  tableName & dbName.tableName -> default.tableName & dbName.tableName
+    * 填充 dbName
+    * */
     private String fillDB(String nowTable) {
         if (Check.isEmpty(nowTable)) {
             return nowTable;
@@ -938,7 +990,11 @@ public class LineParser {
     }
 
 
+    /*
+    * aliasName -> {别名对应的tableNameList, aliasName}
+    * */
     private String[] getTableAndAlia(String alia) {
+        //ParseUtil.collectionToString  ->   所有table的别名 t1&t2&t3 ..
         String _alia = Check.notEmpty(alia) ? alia :
                 ParseUtil.collectionToString(queryMap.keySet(), SPLIT_AND, true);
         String[] result = {"", _alia};
